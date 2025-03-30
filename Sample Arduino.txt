@@ -1,0 +1,121 @@
+#include <Arduino.h>
+
+// --- Định nghĩa chân nút bấm ---
+const int buttonAPin = 2; // Chân nối với nút A
+const int buttonBPin = 3; // Chân nối với nút B
+
+// --- Định nghĩa lệnh gửi ---
+const char* CMD_START = "START";
+const char* CMD_STOP_SAVE = "STOP_SAVE";
+const char* CMD_STOP_DISCARD = "STOP_DISCARD";
+
+// --- Biến trạng thái nút bấm ---
+int lastButtonAState = HIGH; // Trạng thái cuối cùng của nút A (HIGH = nhả)
+int lastButtonBState = HIGH; // Trạng thái cuối cùng của nút B (HIGH = nhả)
+int currentButtonAState = HIGH;
+int currentButtonBState = HIGH;
+
+// --- Biến theo dõi trạng thái tổ hợp cuối cùng đã gửi ---
+// Để tránh gửi lệnh liên tục khi giữ nút
+// 0 = không có nút nào / trạng thái không xác định
+// 1 = chỉ B (01 -> START)
+// 2 = chỉ A (10 -> STOP_DISCARD)
+// 3 = cả A và B (11 -> STOP_SAVE)
+int lastSentCombination = 0;
+
+// --- Thời gian Debounce ---
+unsigned long lastDebounceTime = 0;
+const unsigned long debounceDelay = 50; // 50 mili giây
+
+// --- Hàm thiết lập ---
+void setup() {
+  Serial.begin(9600); // Khớp với Python
+  while (!Serial) { ; } // Chờ Serial
+
+  // Cấu hình chân nút bấm là INPUT_PULLUP
+  // Khi không nhấn -> HIGH, khi nhấn (nối đất) -> LOW
+  pinMode(buttonAPin, INPUT_PULLUP);
+  pinMode(buttonBPin, INPUT_PULLUP);
+
+  Serial.println("\n--- Arduino Button Combination Sender ---");
+  Serial.println("Logic:");
+  Serial.println(" - Nút B nhấn (A nhả): Gửi START");
+  Serial.println(" - Nút A nhấn (B nhả): Gửi STOP_DISCARD");
+  Serial.println(" - Cả A và B nhấn   : Gửi STOP_SAVE");
+  Serial.println("Sẵn sàng nhận tín hiệu nút bấm...");
+}
+
+// --- Hàm trợ giúp gửi lệnh ---
+void sendCommand(const char* cmd) {
+  Serial.print(millis());
+  Serial.print("ms [SENDING]: ");
+  Serial.println(cmd);
+  Serial.println(cmd); // Gửi lệnh thực tế
+  Serial.flush();
+}
+
+// --- Vòng lặp chính ---
+void loop() {
+  unsigned long currentMillis = millis();
+
+  // Đọc trạng thái hiện tại của các nút bấm
+  int readingA = digitalRead(buttonAPin);
+  int readingB = digitalRead(buttonBPin);
+
+  // Debounce: Chỉ xử lý nếu trạng thái ổn định sau một khoảng thời gian
+  if ((readingA != lastButtonAState) || (readingB != lastButtonBState)) {
+    lastDebounceTime = currentMillis; // Reset timer nếu có thay đổi
+  }
+
+  if ((currentMillis - lastDebounceTime) > debounceDelay) {
+    // Nếu trạng thái đã thay đổi thực sự sau khi debounce
+    if ((readingA != currentButtonAState) || (readingB != currentButtonBState)) {
+       currentButtonAState = readingA;
+       currentButtonBState = readingB;
+
+      // Xác định tổ hợp nút bấm hiện tại (LOW = nhấn, HIGH = nhả)
+      // Quy ước A B -> 10 là A nhấn, B nhả
+      int currentCombination = 0; // Mặc định không có tổ hợp nào hợp lệ
+      bool buttonA_Pressed = (currentButtonAState == LOW);
+      bool buttonB_Pressed = (currentButtonBState == LOW);
+
+      if (buttonA_Pressed && buttonB_Pressed) { // A=1, B=1 (logic nhấn là 1) -> cả hai cùng nhấn
+        currentCombination = 3; // STOP_SAVE
+      } else if (buttonA_Pressed && !buttonB_Pressed) { // A=1, B=0 -> chỉ A nhấn
+        currentCombination = 2; // STOP_DISCARD
+      } else if (!buttonA_Pressed && buttonB_Pressed) { // A=0, B=1 -> chỉ B nhấn
+        currentCombination = 1; // START
+      } else { // A=0, B=0 -> cả hai cùng nhả
+        currentCombination = 0; // Reset, không gửi gì
+      }
+
+      // Chỉ gửi lệnh nếu tổ hợp hiện tại khác với tổ hợp đã gửi lần cuối
+      // và tổ hợp hiện tại không phải là 0 (không có nút nào nhấn hoặc cả hai nhả)
+      if (currentCombination != lastSentCombination ) { // Chỉ gửi khi trạng thái thay đổi
+          switch(currentCombination) {
+              case 1: // Chỉ B (01)
+                  sendCommand(CMD_START);
+                  break;
+              case 2: // Chỉ A (10)
+                  sendCommand(CMD_STOP_DISCARD);
+                  break;
+              case 3: // Cả A và B (11)
+                  sendCommand(CMD_STOP_SAVE);
+                  break;
+              case 0: // Không nhấn hoặc cả hai nhả
+                  Serial.print(millis()); Serial.println("ms [INFO]: Buttons Released / No valid combination.");
+                  // Không gửi lệnh gì
+                  break;
+          }
+          lastSentCombination = currentCombination; // Cập nhật trạng thái tổ hợp đã gửi
+      }
+    }
+  }
+
+  // Lưu lại trạng thái đọc cuối cùng cho debounce lần sau
+  lastButtonAState = readingA;
+  lastButtonBState = readingB;
+
+  // Có thể thêm delay nhỏ nếu muốn, nhưng không thực sự cần thiết
+  // delay(10);
+}
