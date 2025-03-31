@@ -1,0 +1,22 @@
+const int buttonA = 3;
+const int buttonB = 4;
+
+void setup() {
+    Serial.begin(9600);
+    pinMode(buttonA, INPUT_PULLUP);
+    pinMode(buttonB, INPUT_PULLUP);
+}
+
+void loop() {
+    int stateA = digitalRead(buttonA);
+    int stateB = digitalRead(buttonB);
+    
+    if (stateA == LOW && stateB == HIGH) {
+        Serial.println("START");
+    } else if (stateA == HIGH && stateB == HIGH) {
+        Serial.println("STOP_SAVE");
+    } else if (stateA == HIGH && stateB == LOW) {
+        Serial.println("STOP_DISCARD");
+    }
+    
+    delay(200); 
