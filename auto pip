@@ -1,0 +1,1 @@
+pip install opencv-python pyserial numpy sounddevice soundfile PyQt5
